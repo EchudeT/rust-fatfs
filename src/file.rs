@@ -212,6 +212,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
         Ok(())
     }
 
+    pub fn offset(&self) -> usize {
+        self.offset as usize
+    }
+
     pub(crate) fn is_root_dir(&self) -> bool {
         self.entry.is_none()
     }
