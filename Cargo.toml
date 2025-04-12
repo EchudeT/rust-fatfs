@@ -43,6 +43,7 @@ default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
 bitflags = { version = "2", default-features = false }
 log = { version = "0.4", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+spin = "0.9"
 
 [dev-dependencies]
 env_logger = "0.9"
