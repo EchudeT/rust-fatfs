@@ -333,7 +333,7 @@ pub struct FileSystem<IO: ReadWriteSeek, TP = DefaultTimeProvider, OCC = LossyOe
     first_data_sector: u32,
     root_dir_sectors: u32,
     total_clusters: u32,
-    fs_info: RefCell<FsInfoSector>,
+    fs_info: Arc<Mutex<FsInfoSector>>,
     current_status_flags: Cell<FsStatusFlags>,
 }
 
@@ -420,7 +420,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
             first_data_sector,
             root_dir_sectors,
             total_clusters,
-            fs_info: RefCell::new(fs_info),
+            fs_info: Arc::new(Mutex::new(fs_info)),
             current_status_flags: Cell::new(status_flags),
         })
     }
@@ -489,7 +489,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     pub(crate) fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
         let num_free = iter.truncate()?;
-        let mut fs_info = self.fs_info.borrow_mut();
+        let mut fs_info = self.fs_info.lock();
         fs_info.map_free_clusters(|n| n + num_free);
         Ok(())
     }
@@ -497,14 +497,14 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     pub(crate) fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
         let num_free = iter.free()?;
-        let mut fs_info = self.fs_info.borrow_mut();
+        let mut fs_info = self.fs_info.lock();
         fs_info.map_free_clusters(|n| n + num_free);
         Ok(())
     }
 
     pub(crate) fn alloc_cluster(&self, prev_cluster: Option<u32>, zero: bool) -> Result<u32, Error<IO::Error>> {
         trace!("alloc_cluster");
-        let hint = self.fs_info.borrow().next_free_cluster;
+        let hint = self.fs_info.lock().next_free_cluster;
         let cluster = {
             let mut fat = self.fat_slice();
             alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters)?
@@ -514,7 +514,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
             disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))?;
             write_zeros(&mut *disk, u64::from(self.cluster_size()))?;
         }
-        let mut fs_info = self.fs_info.borrow_mut();
+        let mut fs_info = self.fs_info.lock();
         fs_info.set_next_free_cluster(cluster + 1);
         fs_info.map_free_clusters(|n| n - 1);
         Ok(cluster)
@@ -543,7 +543,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn stats(&self) -> Result<FileSystemStats, Error<IO::Error>> {
-        let free_clusters_option = self.fs_info.borrow().free_cluster_count;
+        let free_clusters_option = self.fs_info.lock().free_cluster_count;
         let free_clusters = if let Some(n) = free_clusters_option {
             n
         } else {
@@ -560,7 +560,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     fn recalc_free_clusters(&self) -> Result<u32, Error<IO::Error>> {
         let mut fat = self.fat_slice();
         let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters)?;
-        self.fs_info.borrow_mut().set_free_cluster_count(free_cluster_count);
+        self.fs_info.lock().set_free_cluster_count(free_cluster_count);
         Ok(free_cluster_count)
     }
 
@@ -582,7 +582,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     fn flush_fs_info(&self) -> Result<(), Error<IO::Error>> {
-        let mut fs_info = self.fs_info.borrow_mut();
+        let mut fs_info = self.fs_info.lock();
         if self.fat_type == FatType::Fat32 && fs_info.dirty {
             let mut disk = self.disk.lock();
             let fs_info_sector_offset = self.offset_from_sector(u32::from(self.bpb.fs_info_sector));
