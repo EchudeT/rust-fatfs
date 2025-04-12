@@ -334,7 +334,7 @@ pub struct FileSystem<IO: ReadWriteSeek, TP = DefaultTimeProvider, OCC = LossyOe
     root_dir_sectors: u32,
     total_clusters: u32,
     fs_info: Arc<Mutex<FsInfoSector>>,
-    current_status_flags: Cell<FsStatusFlags>,
+    current_status_flags: Arc<Mutex<FsStatusFlags>>,
 }
 
 pub trait IntoStorage<T: Read + Write + Seek> {
@@ -421,7 +421,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
             root_dir_sectors,
             total_clusters,
             fs_info: Arc::new(Mutex::new(fs_info)),
-            current_status_flags: Cell::new(status_flags),
+            current_status_flags: Arc::new(Mutex::new(status_flags)),
         })
     }
 
@@ -598,10 +598,12 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut flags = self.bpb.status_flags();
         flags.dirty |= dirty;
         // Check if flags has changed
-        let current_flags = self.current_status_flags.get();
-        if flags == current_flags {
-            // Nothing to do
-            return Ok(());
+        {
+            let current_flags = *self.current_status_flags.lock();
+            if flags == current_flags {
+                // Nothing to do
+                return Ok(());
+            }
         }
         let encoded = flags.encode();
         // Note: only one field is written to avoid rewriting entire boot-sector which could be dangerous
@@ -614,7 +616,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut disk = self.disk.lock();
         disk.seek(io::SeekFrom::Start(offset))?;
         disk.write_u8(encoded)?;
-        self.current_status_flags.set(flags);
+        *self.current_status_flags.lock() = flags;
         Ok(())
     }
 
