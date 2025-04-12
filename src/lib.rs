@@ -56,7 +56,6 @@
 
 extern crate log;
 
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
 
 #[macro_use]
